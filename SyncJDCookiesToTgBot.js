@@ -15,6 +15,7 @@ let preDelay = 10000                     // 预指令发送后的延迟时间（
 ★ 执行区 ★（请勿修改下面代码）
 */
 let notifyBody = "";
+let shouldNotify = false; // 新增标志，控制是否发送通知
 const got = require('got');
 const fs = require('fs');
 const path = require('path');
@@ -39,6 +40,7 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
     if (!envResp || !envResp.data || envResp.code !== 200) {
         log("❌ 获取环境变量失败");
         notifyBody = "❌ 获取环境变量失败";
+        shouldNotify = true; // 错误情况下需要通知
         return;
     }
     
@@ -144,6 +146,8 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
     
     // 1. 检测到有CK变动时才执行发送流程
     if (changedCount > 0) {
+        shouldNotify = true; // 设置标志：有变动需要通知
+        
         log(`🚨 检测到 ${changedCount} 个CK变动！`);
         
         // 记录变更信息（仅显示前5个）
@@ -246,6 +250,7 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
     notifyBody = `❌${"！".repeat(10)} 脚本运行错误 ${"！".repeat(10)}❌\n` +
                  `${e.message || e}\n\n` +
                  `🔧 可能原因:\n  1. API服务器无法访问\n  2. 文件权限问题\n  3. 脚本执行环境异常`;
+    shouldNotify = true; // 错误情况下需要通知
 })
 .finally(() => {
     // 消息通知处理
@@ -262,8 +267,12 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
     log(notifyLog);
     log("=".repeat(50));
     
-    // 实际发送通知（取消下方注释启用）
-    showmsg(notifyBody);
+    // 只有有CK变动或发生错误时才发送通知
+    if (shouldNotify) {
+        showmsg(notifyBody);
+    } else {
+        log("🔄 无CK变动且无错误，跳过通知发送");
+    }
 });
 
 // 简化日志函数
@@ -278,8 +287,8 @@ async function showmsg(msg) {
         // 在这里实现实际的通知发送逻辑
         var notify = require('./sendNotify');
         await notify.sendNotify(name, msg);
-        console.log(`📨 通知已发送!`);
+        log(`📨 通知已发送!`);
     } catch (e) {
-        console.log(`❌ 通知发送失败: ${e.message}`);
+        log(`❌ 通知发送失败: ${e.message}`);
     }
 }
