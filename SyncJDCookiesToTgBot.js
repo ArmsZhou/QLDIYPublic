@@ -107,81 +107,88 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
     }
     
     // === 核心执行流程 ===
-    // 1. 发送预指令
-    let preCmdResult = `❌ 预操作指令发送失败 (指令: "${preCommand}")`;
-    try {
-        log(`📤 正在发送预指令: "${preCommand}"...`);
-        const resp = await got.post(serverUrl, {
-            json: {
-                platform: platform,
-                userId: userId,
-                type: "text",
-                msg: preCommand
-            },
-            timeout: 5000,
-            throwHttpErrors: false
-        });
-        
-        preCmdResult = resp.statusCode >= 200 && resp.statusCode < 300 ?
-            `✅ 预指令发送成功 (指令: "${preCommand}", 状态码: ${resp.statusCode})` :
-            `❌ 预指令发送失败 (指令: "${preCommand}", 状态码: ${resp.statusCode})`;
-        
-        log(preCmdResult);
-    } catch (e) {
-        preCmdResult = `❌ 预指令发送异常 (指令: "${preCommand}"): ${e.message || e}`;
-        log(preCmdResult);
+    // 初始化结果变量
+    let preCmdResult = "🔄 未检测到CK变动，跳过预指令";
+    let waitInfo = "🔄 未检测到CK变动，无需等待";
+    let ckSendResult = "🔄 未检测到CK变动";
+    let changedCksInfo = "";
+    
+    // 计算Hash以比较CK数据
+    function getCKHash(ck) {
+        const pin = getPin(ck);
+        return pin.replace(/\s/g, '') + '_' + ck.length;
     }
     
-    // 2. 延迟等待（使用配置的延迟时间）
-    log(`⏳ 等待 ${preDelay/1000} 秒后发送账号数据 (${validData.length}个有效账号)...`);
-    await new Promise(resolve => setTimeout(resolve, preDelay)); 
+    // 比较两个CK列表的不同
+    const currentHashes = new Set(validCookies.map(getCKHash));
+    const lastHashes = new Set(lastSentCookies.map(getCKHash));
     
-    // 3. 比较并发送CK数据
-    let ckSendResult = "❌ CK数据未发送";
-    let changedCksInfo = "";
-    let changedCount = 0;
+    // 找出新增或变化的CK
+    let changedCookies = [];
+    let changedPins = [];
     
-    try {
-        // 计算Hash以比较CK数据
-        function getCKHash(ck) {
-            const pin = getPin(ck);
-            return pin.replace(/\s/g, '') + '_' + ck.length;
+    for (const ck of validCookies) {
+        const hash = getCKHash(ck);
+        if (!lastHashes.has(hash)) {
+            changedCookies.push(ck);
+            changedPins.push(getPin(ck));
+        }
+    }
+    
+    // 统计变更情况
+    const changedCount = changedCookies.length;
+    const addedCount = changedCount;
+    const removedCount = lastSentCookies.length - [...lastHashes].filter(h => currentHashes.has(h)).length;
+    changedCksInfo = `[CK变动统计] 新增: ${addedCount}, 减少: ${removedCount}, 不变: ${validCookies.length - addedCount}`;
+    log(changedCksInfo);
+    
+    // 1. 检测到有CK变动时才执行发送流程
+    if (changedCount > 0) {
+        log(`🚨 检测到 ${changedCount} 个CK变动！`);
+        
+        // 记录变更信息（仅显示前5个）
+        let changedNotify = "";
+        for (let i = 0; i < Math.min(5, changedPins.length); i++) {
+            log(`├─ CK变动 ${i+1}: ${changedPins[i]}`);
+            changedNotify += `  ${i < 4 ? "├" : "└"}─ ${changedPins[i]}\n`;
+        }
+        if (changedPins.length > 5) {
+            changedNotify += `  └─ ...等${changedPins.length}个变动账号\n`;
         }
         
-        // 比较两个CK列表的不同
-        const currentHashes = new Set(validCookies.map(getCKHash));
-        const lastHashes = new Set(lastSentCookies.map(getCKHash));
-        
-        // 找出新增或变化的CK
-        const changedCookies = [];
-        const changedPins = [];
-        
-        for (const ck of validCookies) {
-            const hash = getCKHash(ck);
-            if (!lastHashes.has(hash)) {
-                changedCookies.push(ck);
-                changedPins.push(getPin(ck));
-                changedCount++;
-            }
-        }
-        
-        // 统计变更情况
-        const addedCount = changedCount;
-        const removedCount = lastHashes.size - [...lastHashes].filter(h => currentHashes.has(h)).length;
-        changedCksInfo = `[CK变动统计] 新增: ${addedCount}, 减少: ${removedCount}, 不变: ${validCookies.length - addedCount}`;
-        log(changedCksInfo);
-        
-        // 只有有变化时才发送
-        if (changedCookies.length > 0) {
-            log(`📤 检测到 ${changedCount} 个变化账号，正在发送...`);
+        // 1.1 发送预指令
+        try {
+            log(`📤 正在发送预指令: "${preCommand}"...`);
+            const resp = await got.post(serverUrl, {
+                json: {
+                    platform: platform,
+                    userId: userId,
+                    type: "text",
+                    msg: preCommand
+                },
+                timeout: 5000,
+                throwHttpErrors: false
+            });
             
-            // 可选：在这里打印变更的CK（包含Pin）
-            for (let i = 0; i < Math.min(3, changedCookies.length); i++) {
-                log(`├─ CK变动 ${i+1}: ${changedPins[i]}`);
-            }
-            if (changedCookies.length > 3) {
-                log(`└─ ...等${changedCookies.length}个变更账号`);
-            }
+            preCmdResult = resp.statusCode >= 200 && resp.statusCode < 300 ?
+                `✅ 预指令发送成功 (指令: "${preCommand}", 状态码: ${resp.statusCode})` :
+                `❌ 预指令发送失败 (指令: "${preCommand}", 状态码: ${resp.statusCode})`;
+            
+            log(preCmdResult);
+        } catch (e) {
+            preCmdResult = `❌ 预指令发送异常 (指令: "${preCommand}"): ${e.message || e}`;
+            log(preCmdResult);
+        }
+        
+        // 1.2 延迟等待（使用配置的延迟时间）
+        const waitTime = `${preDelay/1000}秒`;
+        log(`⏳ 等待 ${waitTime}后发送账号数据...`);
+        waitInfo = `⏳ 等待 ${waitTime} 后发送新账号数据`;
+        await new Promise(resolve => setTimeout(resolve, preDelay)); 
+        
+        // 1.3 发送变化的CK数据
+        try {
+            log(`📤 正在发送${changedCount}个变动账号...`);
             
             const ckResp = await got.post(serverUrl, {
                 json: {
@@ -194,10 +201,12 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
                 throwHttpErrors: false
             });
             
-            // 记录操作成功
+            // 记录操作结果
             ckSendResult = ckResp.statusCode >= 200 && ckResp.statusCode < 300 ?
-                `✅ CK数据发送成功 (变化账号: ${changedCookies.length})` :
-                `❌ CK数据发送失败 (状态码: ${ckResp.statusCode})`;
+                `✅ CK发送成功 (变动账号: ${changedCount})` :
+                `❌ CK发送失败 (状态码: ${ckResp.statusCode})`;
+            
+            log(ckSendResult);
             
             // 保存当前CK数据到本地文件
             try {
@@ -206,13 +215,12 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
             } catch (e) {
                 log(`⚠️ 保存CK记录失败: ${e.message}`);
             }
-        } else {
-            ckSendResult = `🔄 没有检测到CK变更，无需发送`;
+        } catch (e) {
+            ckSendResult = `❌ CK发送异常: ${e.message || e}`;
             log(ckSendResult);
         }
-    } catch (e) {
-        ckSendResult = `❌ CK数据处理异常: ${e.message || e}`;
-        log(ckSendResult);
+    } else {
+        log("🔄 未检测到CK变动，跳过所有发送步骤");
     }
     
     // 4. 构建最终通知
@@ -223,7 +231,7 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
                  `  延迟: ${preDelay}ms\n\n` +
                  `📊 执行流程:\n` +
                  `  1. ${preCmdResult}\n` +
-                 `  2. ⏳ 等待 ${preDelay/1000} 秒\n` +
+                 `  2. ${waitInfo}\n` +
                  `  3. ${ckSendResult}\n` +
                  `  4. ${changedCksInfo}\n\n` +
                  `📋 账号统计:\n${resultNotify}`;
@@ -248,31 +256,30 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
     }
     
     // 输出通知内容到日志
+    const notifyLog = notifyBody.replace(/^/gm, "  ");
     log("\n" + "=".repeat(50));
     log("📢 最终通知内容:");
-    log(notifyBody);
+    log(notifyLog);
     log("=".repeat(50));
     
     // 实际发送通知（取消下方注释启用）
-    // showmsg(notifyBody);
+    showmsg(notifyBody);
 });
 
-// 简化日志函数（无时间戳）
+// 简化日志函数
 function log(msg) {
-    // 格式化消息（添加缩进）
-    const indentMsg = "  " + msg;
-    console.log(indentMsg);
+    console.log(`${msg}`);
 }
 
-// 发送通知函数（根据需求启用）
+// 发送通知函数
 async function showmsg(msg) {
     if (!msg) return;
     try {
         // 在这里实现实际的通知发送逻辑
-        // 示例：var notify = require('./sendNotify');
-        // await notify.sendNotify(name, msg);
-        log(`📨 已发送通知到【${platform}】平台`);
+        var notify = require('./sendNotify');
+        await notify.sendNotify(name, msg);
+        console.log(`📨 通知已发送!`);
     } catch (e) {
-        log(`❌ 通知发送失败: ${e.message}`);
+        console.log(`❌ 通知发送失败: ${e.message}`);
     }
 }
