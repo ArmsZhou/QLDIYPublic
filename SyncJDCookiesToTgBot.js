@@ -23,6 +23,30 @@ const path = require('path');
 // 本地记录文件路径
 const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
 
+// 工具函数：解析pt_pin
+function getPin(cookie) {
+    let match = cookie.match(/pt_pin=([^;]+)/);
+    let pin = match ? match[1] : "无法解析";
+    try {
+        return decodeURIComponent(pin);
+    } catch (e) {
+        return pin;
+    }
+}
+
+// 工具函数：获取CK标识（pt_pin + pt_key 组合）
+function getCKSign(cookie) {
+    try {
+        let pinMatch = cookie.match(/pt_pin=([^;]+)/);
+        let keyMatch = cookie.match(/pt_key=([^;]+)/);
+        let pin = pinMatch ? pinMatch[1] : "no_pin";
+        let key = keyMatch ? keyMatch[1] : "no_key";
+        return `${pin}|${key}`;
+    } catch (e) {
+        return `error_${cookie.substr(0, 20)}`;
+    }
+}
+
 !(async () => {
     // 打印配置信息
     log(`⚙️ 当前配置:`);
@@ -44,22 +68,11 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
         return;
     }
     
-    // 解析pt_pin函数
-    function getPin(cookie) {
-        let match = cookie.match(/pt_pin=([^;]+)/);
-        let pin = match ? match[1] : "无法解析";
-        try {
-            return decodeURIComponent(pin);
-        } catch (e) {
-            return pin;
-        }
-    }
-    
     // 整理有效/无效账号
     const validCookies = [];
     const validData = [];
     const invalidData = [];
-    const validPins = new Set(); // 用于查重
+    const validSigns = new Set(); // 用于查重（基于CK标识）
     
     for (const env of envResp.data) {
         if (env.name === 'JD_COOKIE') {
@@ -68,11 +81,12 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
             
             // 检查是否重复
             if (env.status === 0) {
+                const sign = getCKSign(env.value);
                 // 如果是新的有效账号
-                if (!validPins.has(pin)) {
+                if (!validSigns.has(sign)) {
                     validCookies.push(env.value);  
                     validData.push(info);
-                    validPins.add(pin);
+                    validSigns.add(sign);
                     log(`→ 发现新CK: ${pin} (备注: ${env.remarks || "无"})`);
                 } else {
                     log(`⚠️ 忽略重复CK: ${pin} (备注: ${env.remarks || "无"}) - 仅保留第一次出现的账号`);
@@ -114,53 +128,63 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
     let waitInfo = "🔄 未检测到CK变动，无需等待";
     let ckSendResult = "🔄 未检测到CK变动";
     let changedCksInfo = "";
+    let changedCksDetail = "";
     
-    // 计算Hash以比较CK数据
-    function getCKHash(ck) {
-        const pin = getPin(ck);
-        return pin.replace(/\s/g, '') + '_' + ck.length;
-    }
-    
-    // 比较两个CK列表的不同
-    const currentHashes = new Set(validCookies.map(getCKHash));
-    const lastHashes = new Set(lastSentCookies.map(getCKHash));
-    
-    // 找出新增或变化的CK
+    // 1. 检测上次记录的CK和当前有效CK的变化（基于pt_key变化）
     let changedCookies = [];
     let changedPins = [];
+    let addedCount = 0;
+    let removedCount = 0;
     
+    // 获取当前有效CK的标识集合
+    const currentSigns = new Set(validCookies.map(ck => getCKSign(ck)));
+    
+    // 获取上次记录的CK标识集合
+    const lastSigns = new Set();
+    lastSentCookies.forEach(ck => {
+        lastSigns.add(getCKSign(ck));
+    });
+    
+    // 检测新增或变化的CK（当前有但上次没有）
     for (const ck of validCookies) {
-        const hash = getCKHash(ck);
-        if (!lastHashes.has(hash)) {
+        const sign = getCKSign(ck);
+        if (!lastSigns.has(sign)) {
             changedCookies.push(ck);
             changedPins.push(getPin(ck));
+            addedCount++;
         }
     }
     
-    // 统计变更情况
+    // 检测减少的CK（上次有但当前没有）
+    lastSentCookies.forEach(ck => {
+        const sign = getCKSign(ck);
+        if (!currentSigns.has(sign)) {
+            removedCount++;
+        }
+    });
+    
     const changedCount = changedCookies.length;
-    const addedCount = changedCount;
-    const removedCount = lastSentCookies.length - [...lastHashes].filter(h => currentHashes.has(h)).length;
-    changedCksInfo = `[CK变动统计] 新增: ${addedCount}, 减少: ${removedCount}, 不变: ${validCookies.length - addedCount}`;
+    changedCksInfo = `[CK变动统计] 新增或pt_key变化: ${changedCount}, 减少: ${removedCount}, 不变: ${validCookies.length - changedCount}`;
     log(changedCksInfo);
     
-    // 1. 检测到有CK变动时才执行发送流程
-    if (changedCount > 0) {
-        shouldNotify = true; // 设置标志：有变动需要通知
-        
-        log(`🚨 检测到 ${changedCount} 个CK变动！`);
-        
-        // 记录变更信息（仅显示前5个）
-        let changedNotify = "";
-        for (let i = 0; i < Math.min(5, changedPins.length); i++) {
-            log(`├─ CK变动 ${i+1}: ${changedPins[i]}`);
-            changedNotify += `  ${i < 4 ? "├" : "└"}─ ${changedPins[i]}\n`;
+    // 记录变更详情（最多5条）
+    if (changedPins.length > 0) {
+        changedCksDetail = `\n\n🔍 变动详情:\n`;
+        const displayCount = Math.min(5, changedPins.length);
+        for (let i = 0; i < displayCount; i++) {
+            changedCksDetail += `  ${i < displayCount - 1 ? "├" : "└"}─ ${changedPins[i]}\n`;
         }
         if (changedPins.length > 5) {
-            changedNotify += `  └─ ...等${changedPins.length}个变动账号\n`;
+            changedCksDetail += `  等${changedPins.length}个变动账号`;
         }
+    }
+    
+    // 2. 检测到有CK变动（pt_key变化）时才执行发送流程
+    if (changedCount > 0) {
+        shouldNotify = true; // 设置标志：有变动需要通知
+        log(`🚨 检测到 ${changedCount} 个CK变动！`);
         
-        // 1.1 发送预指令
+        // 2.1 发送预指令
         try {
             log(`📤 正在发送预指令: "${preCommand}"...`);
             const resp = await got.post(serverUrl, {
@@ -184,13 +208,13 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
             log(preCmdResult);
         }
         
-        // 1.2 延迟等待（使用配置的延迟时间）
+        // 2.2 延迟等待（使用配置的延迟时间）
         const waitTime = `${preDelay/1000}秒`;
         log(`⏳ 等待 ${waitTime}后发送账号数据...`);
         waitInfo = `⏳ 等待 ${waitTime} 后发送新账号数据`;
         await new Promise(resolve => setTimeout(resolve, preDelay)); 
         
-        // 1.3 发送变化的CK数据
+        // 2.3 发送变化的CK数据（仅pt_key变化的有效CK）
         try {
             log(`📤 正在发送${changedCount}个变动账号...`);
             
@@ -207,15 +231,15 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
             
             // 记录操作结果
             ckSendResult = ckResp.statusCode >= 200 && ckResp.statusCode < 300 ?
-                `✅ CK发送成功 (变动账号: ${changedCount})` :
+                `✅ PT_KEY变化CK发送成功 (变动账号: ${changedCount})` :
                 `❌ CK发送失败 (状态码: ${ckResp.statusCode})`;
             
             log(ckSendResult);
             
-            // 保存当前CK数据到本地文件
+            // 保存当前所有有效CK到本地文件（作为下次比较基准）
             try {
                 fs.writeFileSync(LAST_CK_FILE, JSON.stringify(validCookies, null, 2));
-                log(`💾 保存本次CK更新到本地记录`);
+                log(`💾 保存本次所有有效CK到本地记录`);
             } catch (e) {
                 log(`⚠️ 保存CK记录失败: ${e.message}`);
             }
@@ -224,10 +248,10 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
             log(ckSendResult);
         }
     } else {
-        log("🔄 未检测到CK变动，跳过所有发送步骤");
+        log("🔄 未检测到CK变动（新增或pt_key变化），跳过所有发送步骤");
     }
     
-    // 4. 构建最终通知
+    // 3. 构建最终通知
     notifyBody = `🚗 JD撸羊毛自动上车执行报告\n\n` +
                  `⚙️ 任务配置:\n` +
                  `  名称: ${name}\n` +
@@ -237,7 +261,8 @@ const LAST_CK_FILE = path.join(__dirname, 'last_sent_cks.json');
                  `  1. ${preCmdResult}\n` +
                  `  2. ${waitInfo}\n` +
                  `  3. ${ckSendResult}\n` +
-                 `  4. ${changedCksInfo}\n\n` +
+                 `  4. ${changedCksInfo}` +
+                 `${changedCksDetail}\n\n` +
                  `📋 账号统计:\n${resultNotify}`;
 })()
 .catch((e) => {
