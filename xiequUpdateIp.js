@@ -27,6 +27,7 @@ class UserManager {
         this.whiteList = "";
         this.needNotify = false;
         this.notifyMsg = '';
+        this.ipChanged = false;  // 新增：记录IP是否变化
     }
 
     log(msg) {
@@ -36,7 +37,7 @@ class UserManager {
 
     logMessage(msg) {
         this.log(msg);
-        this.notifyMsg += `账号${this.accountIndex}: ${msg}\n`;
+        this.notifyMsg += `账号${this.accountIndex}-[${this.getCurrentUID()}]: ${msg}\n`;
     }
 
     getCurrentUID() {
@@ -46,10 +47,12 @@ class UserManager {
     async fetchCurrentIP() {
         return new Promise((resolve) => {
             $.get({ url: "https://4.ipw.cn" }, (err, resp, data) => {
-                currentIp = data.trim();
-                if (!globalNotifyMsg.includes(currentIp)) {
-                    this.logMessage(`📢当前外部IP地址: ${currentIp}`);
+                const newIp = data.trim();
+                if (currentIp && newIp !== currentIp) {
+                    this.ipChanged = true;
+                    this.logMessage(`⚠️检测到IP变化: ${currentIp} -> ${newIp}`);
                 }
+                currentIp = newIp;
                 resolve();
             });
         });
@@ -83,7 +86,6 @@ class UserManager {
                     this.quantity = validResource.num - validResource.use;
                     this.logMessage(`剩余流量/IP: ${this.quantity}`);
                     
-                    // 检测流量不足通知条件
                     if (this.quantity < NOTIFY_THRESHOLD) {
                         this.needNotify = true;
                         this.logMessage(`⚠️警告: 流量/IP不足${NOTIFY_THRESHOLD}!`);
@@ -109,7 +111,7 @@ class UserManager {
                         `清除账号[${uid}]白名单`
                     );
                     resolve();
-                }, 1500); // 延迟避免频繁请求
+                }, 1500);
             });
         });
         await Promise.all(deletePromises);
@@ -122,10 +124,6 @@ class UserManager {
             "添加新白名单"
         );
         this.logMessage(`白名单更新结果: ${data}`);
-        
-        // 触发通知条件1：检测到IP变化
-        this.needNotify = true;
-        shouldNotify = true;
     }
 
     async checkWhitelist(uid, ukey) {
@@ -150,6 +148,14 @@ class UserManager {
     async processAccounts() {
         await this.fetchCurrentIP();
 
+        // 初始化通知消息，包含账号总数和当前IP
+        this.notifyMsg = `📊 共管理 ${this.cookies.length} 个账号\n\n`;
+        if (currentIp) {
+            this.notifyMsg += `📢 当前外部IP地址: ${currentIp}\n\n`;
+        }
+
+        let hasValidAccount = false;
+        
         // 处理每个账号
         for (let i = 0; i < this.cookies.length; i++) {
             this.accountIndex = i;
@@ -160,15 +166,16 @@ class UserManager {
             
             // 2. 资源充足时处理白名单
             if (hasResources && this.quantity > MIN_COUNT) {
+                hasValidAccount = true;
                 const isWhitelisted = await this.checkWhitelist(uid, ukey);
                 
-                if (!isWhitelisted) {
+                if (!isWhitelisted || this.ipChanged) {
                     await this.clearAllWhitelists();
                     await this.updateWhitelist(uid, ukey);
-                    break; // 成功更新后终止循环
+                    break;
                 }
                 this.logMessage("✅ 当前白名单配置正确");
-                break; // IP正确无需后续处理
+                break;
             }
             
             // 3. 资源不足时清理白名单
@@ -181,9 +188,14 @@ class UserManager {
             }
         }
         
-        // 汇总所有需要通知的消息
-        if (this.needNotify) {
-            globalNotifyMsg += this.notifyMsg + "\n";
+        // 如果没有有效账号，添加警告
+        if (!hasValidAccount) {
+            this.notifyMsg += "⚠️ 警告: 没有找到有效的可用账号!\n";
+        }
+        
+        // 通知条件：IP变化、需要通知或没有有效账号
+        if (this.ipChanged || this.needNotify || !hasValidAccount) {
+            globalNotifyMsg += this.notifyMsg;
             shouldNotify = true;
         }
     }
@@ -206,7 +218,6 @@ class UserManager {
     const manager = new UserManager(cookies);
     await manager.processAccounts();
     
-    // 满足通知条件时才发送
     if (shouldNotify) {
         $.msg(globalNotifyMsg);
     } else {
