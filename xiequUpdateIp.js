@@ -10,6 +10,8 @@ const $ = new Env(name);
 const evnCookie = $.isNode() ? (process.env.xiequCk || "") : ($.getdata('xiequCk') || "");
 const MIN_COUNT = 10;       // 切换白名单的阈值
 const NOTIFY_THRESHOLD = 100; // 发送通知的阈值
+const MAX_IP_RETRY = 3;     // IP获取最大重试次数
+const VALID_IP_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/; // 验证IP格式的正则
 let currentIp = '';
 let globalNotifyMsg = '';
 class UserManager {
@@ -26,6 +28,7 @@ class UserManager {
         this.allAccountsNoFlow = true;
         this.accountStatus = [];
         this.currentAccount = null;
+        this.ipError = false;
     }
     
     // 普通日志，不触发通知
@@ -41,22 +44,63 @@ class UserManager {
         $.log(formattedMsg);
         this.notifyMsg += `${formattedMsg}\n`;
     }
+    
     getCurrentUID() {
         return this.cookies[this.accountIndex]?.split("##")[0] || '未知账号';
     }
-    async fetchCurrentIP() {
-        return new Promise((resolve) => {
-            $.get({ url: "https://4.ipw.cn" }, (err, resp, data) => {
-                const newIp = data?.trim() || '';
-                if (currentIp && newIp && newIp !== currentIp) {
-                    this.ipChanged = true;
-                    this.logMessage(`⚠️ 检测到IP变化: ${currentIp} -> ${newIp}`);
-                }
-                currentIp = newIp;
-                resolve();
-            });
-        });
+    
+    isValidIP(ip) {
+        return ip && VALID_IP_REGEX.test(ip);
     }
+    
+    async fetchCurrentIP() {
+        let retryCount = 0;
+        let newIp = '';
+        
+        while (retryCount < MAX_IP_RETRY && !this.isValidIP(newIp)) {
+            retryCount++;
+            try {
+                newIp = await new Promise((resolve) => {
+                    $.get({ url: "https://4.ipw.cn" }, (err, resp, data) => {
+                        if (err || !data) {
+                            this.log(`IP获取失败，第${retryCount}次重试，错误: ${err || '无数据'}`);
+                            resolve('');
+                            return;
+                        }
+                        
+                        const ip = data?.trim() || '';
+                        if (this.isValidIP(ip)) {
+                            resolve(ip);
+                        } else {
+                            this.log(`获取的IP格式无效: ${ip}，第${retryCount}次重试`);
+                            resolve('');
+                        }
+                    });
+                });
+                
+                if (!this.isValidIP(newIp) && retryCount < MAX_IP_RETRY) {
+                    await $.wait(2000); // 等待2秒再重试
+                }
+            } catch (e) {
+                this.log(`IP获取异常: ${e}, 第${retryCount}次重试`);
+            }
+        }
+        
+        if (!this.isValidIP(newIp)) {
+            this.ipError = true;
+            this.logMessage(`❌ 错误: 无法获取有效IP地址，最多重试${MAX_IP_RETRY}次`);
+            return false;
+        }
+        
+        if (currentIp && newIp && newIp !== currentIp) {
+            this.ipChanged = true;
+            this.logMessage(`⚠️ 检测到IP变化: ${currentIp} -> ${newIp}`);
+        }
+        
+        currentIp = newIp;
+        return true;
+    }
+    
     async requestApi(url, description) {
         return new Promise((resolve, reject) => {
             this.log(`请求 ${description}`);
@@ -70,6 +114,7 @@ class UserManager {
             });
         });
     }
+    
     async checkAccountResources(uid, ukey) {
         try {
             const data = await this.requestApi(
@@ -108,6 +153,7 @@ class UserManager {
         }
         return false;
     }
+    
     async clearAllWhitelists() {
         this.logMessage("♻️ 正在清除所有账号的白名单...");
         const deletePromises = this.cookies.map((cookie, index) => {
@@ -125,7 +171,13 @@ class UserManager {
         });
         await Promise.all(deletePromises);
     }
+    
     async updateWhitelist(uid, ukey) {
+        if (!this.isValidIP(currentIp)) {
+            this.logMessage(`❌ 无效IP地址: ${currentIp}，跳过白名单更新`);
+            return false;
+        }
+        
         this.logMessage("🔄 正在更新账号白名单...");
         const data = await this.requestApi(
             `http://op.xiequ.cn/IpWhiteList.aspx?act=add&ip=${currentIp}&uid=${uid}&ukey=${ukey}`,
@@ -133,7 +185,9 @@ class UserManager {
         );
         this.logMessage(`✅ 白名单更新结果: ${data}`);
         this.whitelistUpdated = true;
+        return data !== 'Err:IpFormat';
     }
+    
     async checkWhitelist(uid, ukey) {
         try {
             const data = await this.requestApi(
@@ -141,7 +195,7 @@ class UserManager {
                 "获取白名单列表"
             );
             
-            if (data && data.includes(currentIp)) {
+            if (data && this.isValidIP(currentIp) && data.includes(currentIp)) {
                 this.log("✅ 当前IP已在白名单中");
                 return true;
             }
@@ -152,6 +206,7 @@ class UserManager {
             return false;
         }
     }
+    
     generateAccountReport() {
         let report = "📊 账号流量状态报告(账号索引-账号ID):\n";
         this.accountStatus.forEach((account, index) => {
@@ -163,17 +218,27 @@ class UserManager {
         });
         return report;
     }
+    
     async processAccounts() {
         console.log(`\n===== 开始处理账号 =====`);
         this.notifyMsg = `==============📣系统通知📣==============\n`;
         this.notifyMsg += `携趣多账号顺序更新白名单\n\n`;
         this.notifyMsg += `📊 共管理 ${this.cookies.length} 个账号\n\n`;
         
-        await this.fetchCurrentIP();
+        const ipResult = await this.fetchCurrentIP();
+        
+        if (!ipResult) {
+            this.notifyMsg += `❌ 错误: 无法获取有效IP地址，请检查网络连接\n`;
+            globalNotifyMsg += this.notifyMsg;
+            return;
+        }
         
         if (currentIp) {
             this.notifyMsg += `🌐 当前检测IP: ${currentIp}\n\n`;
+        } else {
+            this.notifyMsg += `❌ 警告: 未检测到当前IP\n\n`;
         }
+        
         for (let i = 0; i < this.cookies.length; i++) {
             this.accountIndex = i;
             const [uid, ukey] = this.cookies[i].split("##");
@@ -182,6 +247,12 @@ class UserManager {
             
             if (hasResources && this.quantity > MIN_COUNT) {
                 this.hasValidAccount = true;
+                
+                if (!this.isValidIP(currentIp)) {
+                    this.logMessage("⚠️ 跳过白名单检查：当前IP无效");
+                    continue;
+                }
+                
                 const isWhitelisted = await this.checkWhitelist(uid, ukey);
                 
                 if (!isWhitelisted || this.ipChanged) {
@@ -197,9 +268,12 @@ class UserManager {
         this.notifyMsg += this.generateAccountReport() + "\n";
         
         // 判定是否需要通知的四种情况
-        if (this.ipChanged || this.whitelistUpdated || this.allAccountsNoFlow || this.needNotify) {
+        if (this.ipChanged || this.whitelistUpdated || this.allAccountsNoFlow || this.needNotify || this.ipError) {
             if (this.allAccountsNoFlow) {
                 this.notifyMsg += "❌ 警告: 所有账号都没有可用流量/IP!\n";
+            }
+            if (this.ipError) {
+                this.notifyMsg += "❌ 严重: IP获取失败，请检查网络连接!\n";
             }
             globalNotifyMsg += this.notifyMsg;
         }
