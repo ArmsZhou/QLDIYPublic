@@ -194,7 +194,7 @@ function getCKSign(cookie) {
                     type: "text",
                     msg: preCommand
                 },
-                timeout: 5000,
+                timeout: 15000,
                 throwHttpErrors: false
             });
             
@@ -225,7 +225,7 @@ function getCKSign(cookie) {
                     type: "text",
                     msg: JSON.stringify(changedCookies)
                 },
-                timeout: 5000,
+                timeout: 15000,
                 throwHttpErrors: false
             });
             
