@@ -198,14 +198,17 @@ function getCKSign(cookie) {
                 throwHttpErrors: false
             });
             
-            preCmdResult = resp.statusCode >= 200 && resp.statusCode < 300 ?
-                `✅ 预指令发送成功 (指令: "${preCommand}", 状态码: ${resp.statusCode})` :
-                `❌ 预指令发送失败 (指令: "${preCommand}", 状态码: ${resp.statusCode})`;
+            if (resp.statusCode < 200 || resp.statusCode >= 300) {
+                preCmdResult = `❌ 预指令发送失败 (指令: "${preCommand}", 状态码: ${resp.statusCode})`;
+                throw new Error(preCmdResult);
+            }
             
+            preCmdResult = `✅ 预指令发送成功 (指令: "${preCommand}", 状态码: ${resp.statusCode})`;
             log(preCmdResult);
         } catch (e) {
             preCmdResult = `❌ 预指令发送异常 (指令: "${preCommand}"): ${e.message || e}`;
             log(preCmdResult);
+            throw e; // 抛出异常终止后续流程
         }
         
         // 2.2 延迟等待（使用配置的延迟时间）
@@ -229,23 +232,26 @@ function getCKSign(cookie) {
                 throwHttpErrors: false
             });
             
-            // 记录操作结果
-            ckSendResult = ckResp.statusCode >= 200 && ckResp.statusCode < 300 ?
-                `✅ PT_KEY变化CK发送成功 (变动账号: ${changedCount})` :
-                `❌ CK发送失败 (状态码: ${ckResp.statusCode})`;
+            if (ckResp.statusCode < 200 || ckResp.statusCode >= 300) {
+                ckSendResult = `❌ CK发送失败 (状态码: ${ckResp.statusCode})`;
+                throw new Error(ckSendResult);
+            }
             
+            ckSendResult = `✅ PT_KEY变化CK发送成功 (变动账号: ${changedCount})`;
             log(ckSendResult);
             
-            // 保存当前所有有效CK到本地文件（作为下次比较基准）
+            // 只有前面所有步骤都成功才保存CK到本地文件
             try {
                 fs.writeFileSync(LAST_CK_FILE, JSON.stringify(validCookies, null, 2));
                 log(`💾 保存本次所有有效CK到本地记录`);
             } catch (e) {
                 log(`⚠️ 保存CK记录失败: ${e.message}`);
+                throw e; // 抛出异常终止流程
             }
         } catch (e) {
             ckSendResult = `❌ CK发送异常: ${e.message || e}`;
             log(ckSendResult);
+            throw e; // 抛出异常终止后续流程
         }
     } else {
         log("🔄 未检测到CK变动（新增或pt_key变化），跳过所有发送步骤");
