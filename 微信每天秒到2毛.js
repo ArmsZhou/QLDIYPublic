@@ -1,3 +1,4 @@
+// 当前脚本来自于http://script.345yun.cn脚本库下载！
 /**
  * #小程序://银愉壹品/V50Gu7uZZrQZKqq
  * 批量刷视频+自动提现+每天秒到2毛
@@ -14,8 +15,6 @@
 * 进APP登录后 点我的 绑定一下自己的支付宝
 
 * 然后使用脚本库中的脚本自动到账3毛，也可以自己手动假分享获取3次抽奖次数
-
-* 脚本库: http://2.345yun.cn
  */
 
 const axios = require("axios");
@@ -119,7 +118,7 @@ function baseHeaders(token) {
     "Content-Type": "application/json",
     "Connection": "keep-alive",
     "Referer": "https://servicewechat.com/wx5b82dfe3747e533f/5/page-frame.html",
-    "Host": "n03.sentezhenxuan.com",
+    "Host": "n05.sentezhenxuan.com",
     "Authori-zation": token, // 注意是 Authori-zation
     "User-Agent":
       "Mozilla/5.0 (iPhone; CPU iPhone OS 15_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.50 NetType/WIFI Language/zh_CN",
@@ -135,7 +134,7 @@ function withdrawHeaders(token) {
     "Connection": "keep-alive",
     "Content-Type": "application/json",
     "Referer": "https://servicewechat.com/wx5b82dfe3747e533f/5/page-frame.html",
-    "Host": "n03.sentezhenxuan.com",
+    "Host": "n05.sentezhenxuan.com",
     "Authori-zation": token, // 注意是 Authori-zation
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.50(0x1800323d) NetType/WIFI Language/zh_CN",
     "Cb-lang": "zh-CN",
@@ -147,3 +146,4 @@ function withdrawHeaders(token) {
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+// 当前脚本来自于http://script.345yun.cn脚本库下载！
