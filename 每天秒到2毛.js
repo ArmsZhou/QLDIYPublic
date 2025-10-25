@@ -119,7 +119,7 @@ function baseHeaders(token) {
     "Content-Type": "application/json",
     "Connection": "keep-alive",
     "Referer": "https://servicewechat.com/wx5b82dfe3747e533f/5/page-frame.html",
-    "Host": "n05.sentezhenxuan.com",
+    "Host": "n03.sentezhenxuan.com",
     "Authori-zation": token, // 注意是 Authori-zation
     "User-Agent":
       "Mozilla/5.0 (iPhone; CPU iPhone OS 15_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.50 NetType/WIFI Language/zh_CN",
@@ -135,7 +135,7 @@ function withdrawHeaders(token) {
     "Connection": "keep-alive",
     "Content-Type": "application/json",
     "Referer": "https://servicewechat.com/wx5b82dfe3747e533f/5/page-frame.html",
-    "Host": "n05.sentezhenxuan.com",
+    "Host": "n03.sentezhenxuan.com",
     "Authori-zation": token, // 注意是 Authori-zation
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.50(0x1800323d) NetType/WIFI Language/zh_CN",
     "Cb-lang": "zh-CN",
