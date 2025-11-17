@@ -1,7 +1,4 @@
-"""
-cron: 0 59 9,13 * * *
-new Env('电信金豆兑换话费');
-"""
+
 import subprocess
 import sys
 import asyncio
@@ -989,3 +986,4 @@ if in_time_window:
 else:
 
     print(f"[{final_time}] [程序结束] 任务执行完成，当前不在推送时间窗口内")
+
