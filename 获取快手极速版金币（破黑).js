@@ -1,26 +1,3 @@
-/**
-
- * 0 依赖自动处理：
- *    若环境中未安装 got，脚本会自动 npm i got --no-save
- *    如果还是无法安装，请手动在依赖管理安装 got
- * 1 账号变量命名：
- *    主账号： qlksck="备注1#cookie1#salt1"
- *    多账号： qlksck1="备注2#cookie2#salt2"
- *             qlksck2="备注3#cookie3#salt3"
- *    最多支持 qlksck1 ~ qlksck99
- *    兼容旧格式： ksck="cookie#salt"（无备注）
- * 2 代理（可选）：
- *    在对应变量后追加代理地址，例如
- *     qlksck1="备注#cookie#salt#socks5://127.0.0.1:1080"
- * 3 推送配置（可选）：
- *    将根目录的 sendNotify.js 放在与本脚本同一目录即可自动加载；
- *    支持：Server酱、PushPlus、Bark、TG、钉钉、企微、飞书等 15+ 通道。
- *    各通道密钥请按 sendNotify.js 内注释配置环境变量。
- * 4 定时建议：
- *    青龙面板：0 8,13,19 * * *  （每天 8/13/19 点各跑 1 次）
- * =========================================
- */
-
 const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -411,5 +388,6 @@ main().catch(err => {
   if (sendNotify) sendNotify('快手金币查询脚本出错', `错误信息: ${err.message}\n\n请检查脚本配置和网络连接。`);
   process.exit(1);
 });
+
 
 
