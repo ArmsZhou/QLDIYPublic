@@ -61,7 +61,7 @@ class UserManager {
             retryCount++;
             try {
                 newIp = await new Promise((resolve) => {
-                    $.get({ url: "https://4.ipw.cn" }, (err, resp, data) => {
+                    $.get({ url: "https://ip.3322.net" }, (err, resp, data) => {
                         if (err || !data) {
                             this.log(`IP获取失败，第${retryCount}次重试，错误: ${err || '无数据'}`);
                             resolve('');
